@@ -7,17 +7,31 @@ import os
 inputfolder = '../data/06_14_2022-13_50_31stce3_pcb_15vRW_600SEC_3/{}'
 # inputfolder = '../data/06_13_2022-12_02_16stce3_pcb_15vFWPULSE_600SEC/{}'
 
-# time px py v i
-# data = np.zeros((1,8,8,1,1))
-inputfolder = inputfolder[3:]
 
+inputfolder = inputfolder[3:]
 data = {}
-print(os.listdir("."))
+
 for file in os.listdir(inputfolder.format('')):
     if file.endswith(".txt"):
         data[file[:-4]] = np.loadtxt(inputfolder.format(file)) # t V IOError
         # print(data[file[:-4]].shape)
-        
+
+# mult_file = np.loadtxt(inputfolder.format("gradient.txt")) # Non numeric lines should start with # !
+mult_file_matrix = np.zeros((8,8))
+# for line in range(mult_file.shape[0]):
+#     mult_file_matrix[int(mult_file[line,0]),int(mult_file[line,1])] = mult_file[line,2]
+# print ( mult_file.shape)
+
+from PIL import Image
+arr = Image.open('data/dog.png').convert('RGB')    
+arr = 255-np.array(arr)
+# print(arr.shape)
+mult_file_matrix = arr[:,:,0]
+mult_file_matrix = mult_file_matrix / np.max(mult_file_matrix)
+# print(arr[:,:,0])
+# print(arr[:,:,1])
+# print(arr[:,:,2])
+
 sig_ind = 1
 
 print("{} files loaded.".format(len(data)))
@@ -26,8 +40,8 @@ print("{} files loaded.".format(len(data)))
 def mov_av(x, w):
     return np.convolve(x, np.ones(w), 'valid') / w
 
+import matplotlib.pyplot as plt
 mov_av_w = 15
-
 # %%
 sm_data = {}
 for k,v in data.items():
@@ -39,19 +53,8 @@ for k,v in data.items():
 # %%
 mintime = np.min([np.max(val[:,0]) for val in sm_data.values()])
 minpoints = np.min([val.shape[0] for val in sm_data.values()])
-
-absmaxcurrent = ([np.max(val[:,sig_ind]) for val in sm_data.values()])
-absmincurrent = ([np.min(val[:,sig_ind]) for val in sm_data.values()])
-absmaxframe = np.argmax(absmaxcurrent)
-absminframe = np.argmax(absmincurrent)
-absmaxcurrent = np.max(absmaxcurrent)
-absmincurrent = np.min(absmincurrent)
-print("ABS MIN:",absmincurrent, "MAX:",absmaxcurrent)
-print("Frame: ", absminframe, absmaxframe)
-# absmaxcurrent = np.partition(absmaxcurrent, -2)[-2]
-# absmincurrent = np.partition(absmincurrent, -10)[-10]
-
-# print(*absmaxcurrent, "===",*absmincurrent, sep="\n")
+# maxcurrent = [np.max(val[:,2]) for val in sm_data.values()]
+# mincurrent = [np.min(val[:,2]) for val in sm_data.values()]
 print("Min pixel total time:",mintime)
 print("Min pixel points:",minpoints)
 fps = round(minpoints/mintime)
@@ -63,15 +66,14 @@ print("Timestep:",1/fps)
 # %%
 import cv2, tqdm
 from PIL import Image
-import matplotlib.pyplot as plt
 size = 8*30, 8*30
 
-fps = 120
 duration = 10
-fig,ax = plt.subplots(1)
+fps = 120
+
+out = cv2.VideoWriter('output/video_{}.mp4'.format(inputfolder[8:-3]), cv2.VideoWriter_fourcc(*'mp4v'), fps, (size[1], size[0]), False)
+
 frames = []
-imframes = []
-import time as timeTTT
 for frame_ind in tqdm.tqdm(range(fps * duration)):
     time = mintime * frame_ind / fps / duration
     frame = np.zeros((8,8))
@@ -83,20 +85,14 @@ for frame_ind in tqdm.tqdm(range(fps * duration)):
             mincurrent = 1#np.min(frame_data[:,2])
             time_ind = np.argmin( np.abs(frame_data[:,0] - time) )
             curr = frame_data[time_ind,sig_ind]
-            frame[7-g_i, r_i] = (curr-mincurrent)/(maxcurrent-mincurrent)
+            frame[7-g_i, r_i] = (curr-mincurrent)/(maxcurrent-mincurrent) * mult_file_matrix[7-g_i, r_i]
+    frame = np.repeat(np.repeat(frame,30,0),30,1)
     frames.append(frame)
-from matplotlib import colors
+
 for frame in tqdm.tqdm(frames):
-    imframes.append([plt.imshow(frame, animated=True, vmin= np.min(frames),vmax=np.max(frames))])
-    # imframes.append([plt.imshow(frame, animated=True, norm=colors.LogNorm(vmin= np.min(frames),vmax=np.max(frames)))])
-
-plt.colorbar(imframes[-1][0])
-
-import matplotlib.animation as anim
-ani = anim.ArtistAnimation(fig, imframes, interval=1/fps*1000, blit=True,
-                                repeat_delay=1000)
-# ani.save('output/raw_{}.mp4'.format(inputfolder[5:-3]), dpi=500)
-ani.save('output/raw_{}.mp4'.format(inputfolder[5:-3]))
-# plt.show()
+    nframe = np.round((frame - np.min(frames))/(np.max(frames) - np.min(frames)) * 255)
+    assert np.all(nframe >= 0) and np.all(nframe <= 255), "Ooops"
+    out.write(nframe.astype('uint8'))
+out.release()
 
 
